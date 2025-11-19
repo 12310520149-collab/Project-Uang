@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Money Pieces Final — Drag + Group + G + X</title>
+<style>
+:root{--bg:#f6f8fb;--card:#ffffff;--muted:#6b7280;--accent:#0ea5a4}
+html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial}
+.app{display:flex;height:100vh;gap:16px;padding:16px;background:linear-gradient(180deg,#eef2ff, #f6f8fb)}
+.panel{background:var(--card);border-radius:12px;padding:12px;box-shadow:0 6px 18px rgba(16,24,40,0.06)}
+.left{width:260px;display:flex;flex-direction:column;gap:12px}
+.workspace{flex:1;position:relative;border:2px dashed rgba(15,23,42,0.06);border-radius:8px;background:linear-gradient(180deg,#fff,#fbfdff);min-height:520px;overflow:hidden;transform-origin:top left;}
+.toolbar{display:flex;gap:8px;align-items:center}
+.btn{padding:8px 10px;border-radius:8px;background:#fff;border:1px solid rgba(15,23,42,0.06);cursor:pointer}
+.palette{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.coin{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px;border-radius:8px;cursor:grab;border:1px solid rgba(15,23,42,0.04);background:#e7fff0}
+.coin .face{width:64px;height:40px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:600;background:#baf7ca}
+.coin .label{font-size:13px;color:var(--muted)}
+.piece{position:absolute;touch-action:none;user-select:none;border-radius:8px;padding:6px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:grab;background:#e7fff0}
+.piece .amount{font-weight:700;font-size:14px}
+.piece .bill{width:90px;height:42px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:#baf7ca}
+.totalBar{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:8px}
+.total{font-size:18px;font-weight:700}
+.small{font-size:12px;color:var(--muted)}
+.right{width:300px;display:flex;flex-direction:column;gap:12px}
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+.footer{font-size:12px;color:var(--muted)}
+.selected-outline{box-shadow: 0 0 12px rgba(0,255,0,0.7); outline:3px solid rgba(0,200,0,0.18) !important;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="panel left">
+    <div style="font-weight:700">Palet Uang</div>
+    <div class="palette" id="palette"></div>
+    <div style="font-size:13px;color:var(--muted)">SHIFT + klik untuk group.</div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn" id="clearBtn">Bersihkan</button>
+      <button class="btn" id="exportBtn">Ekspor Gambar</button>
+    </div>
+  </div>
+
+  <div style="flex:1;display:flex;flex-direction:column;gap:12px">
+    <div class="panel totalBar">
+      <div>
+        <div class="small">Workspace — Drag & Drop</div>
+        <div class="total" id="totalText">Total: Rp0,00</div>
+      </div>
+      <div class="toolbar">
+        <div class="small">Mode:</div>
+        <button class="btn" id="snapBtn">Snap ON</button>
+        <button class="btn" id="duplicateBtn">Gandakan (D)</button>
+      </div>
+    </div>
+
+    <div class="workspace panel" id="workspace" tabindex="0"></div>
+  </div>
+
+  <div class="panel right">
+    <div style="font-weight:700">Kontrol Cepat</div>
+    <div class="controls">
+      <div class="small">Pilih mata uang:</div>
+      <select id="currencySelect" class="btn">
+        <option value="IDR">Rupiah (IDR)</option>
+        <option value="USD">Dollar (USD)</option>
+      </select>
+      <div class="small">Skala Pieces:</div>
+      <input type="range" id="scaleRange" min="0.6" max="1.6" step="0.05" value="1" />
+      <div class="small">Zoom Workspace:</div>
+      <input type="range" id="zoomRange" min="0.5" max="2" step="0.1" value="1" />
+      <div class="small">Expand Workspace:</div>
+      <input type="range" id="expandRange" min="1" max="3" step="0.1" value="1" />
+    </div>
+
+    <div style="margin-top:12px">
+      <div style="font-weight:600">Petunjuk</div>
+      <ol style="padding-left:18px;color:var(--muted)">
+        <li>Drag uang dari palet ke workspace</li>
+        <li>SHIFT + klik untuk pilih banyak (group)</li>
+        <li>Tekan <b>G</b> untuk menggandakan group</li>
+        <li>Tekan <b>X</b> untuk menukar group</li>
+        <li><b>Fitur Grup Drag:</b> Setelah group (SHIFT + klik), klik biasa pada salah satu piece dalam group lalu drag untuk memindahkan seluruh group bersama-sama (posisi relatif tetap)</li>
+        <li><b>Zoom Workspace:</b> Gunakan slider "Zoom Workspace" untuk zoom in/out latar belakang tanpa mengubah ukuran pieces (agar tidak berantakan)</li>
+        <li><b>Expand Workspace:</b> Gunakan slider "Expand Workspace" untuk memperluas ruang fisik workspace (width & height), sehingga ada lebih banyak space kosong tanpa mengubah ukuran pieces</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<!-- ================== SCRIPT ================== -->
+<script>
+/* =====================
+   1. DATA PECAHAN
+===================== */
+const sets = {
+  IDR: [1000,2000,5000,10000,20000,50000,100000],
+  USD: [1,5,10,20,50,100]
+};
+
+let currentSet = 'IDR';
+
+/* =====================
+   2. PALET — DRAGGABLE
+===================== */
+const palette = document.getElementById('palette');
+const workspace = document.getElementById('workspace');
+
+function populatePalette(){
+  palette.innerHTML = '';
+  sets[currentSet].forEach(v=>{
+    const el = document.createElement('div');
+    el.className = 'coin';
+    el.draggable = true;
+    el.dataset.value = v;
+
+    const face = document.createElement('div');
+    face.className = 'face';
+    face.textContent = currentSet==='IDR' ? 'Rp'+v.toLocaleString('id-ID') : '$'+v;
+
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = 'bill';
+
+    el.appendChild(face);
+    el.appendChild(label);
+
+    el.addEventListener('dragstart', paletteDragStart);
+    palette.appendChild(el);
+  });
+}
+populatePalette();
+
+let dragValue = 0;
+function paletteDragStart(e){
+  dragValue = Number(e.target.dataset.value);
+}
+
+/* =====================
+   3. SPAWN KE WORKSPACE
+===================== */
+let snap = true;
+
+document.getElementById('snapBtn').onclick = ()=>{
+  snap = !snap;
+  document.getElementById('snapBtn').textContent = snap ? 'Snap ON' : 'Snap OFF';
+};
+
+workspace.addEventListener('dragover', e=> e.preventDefault());
+workspace.addEventListener('drop', e=>{
+  const x = e.offsetX;
+  const y = e.offsetY;
+  spawnPiece(x,y,{value:dragValue});
+  updateTotal();
+
+/* =====================
+   12. DELETE SELECTED (DEL / BACKSPACE)
+===================== */
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Delete' || e.key === 'Backspace'){
+    if(selectedPieces.size===0) return;
+    selectedPieces.forEach(p=> p.remove());
+    selectedPieces.clear();
+    updateTotal();
+  }
+});
+});
+
+/* =====================
+   4. PIECE OBJECT
+===================== */
+function spawnPiece(x,y,{value}){
+  const el = document.createElement('div');
+  el.className = 'piece';
+  el.dataset.value = value;
+
+  const bill = document.createElement('div');
+  bill.className = 'bill';
+  bill.textContent = currentSet==='IDR' ? 'Rp'+value.toLocaleString('id-ID') : '$'+value;
+
+  el.appendChild(bill);
+
+  if(snap){
+    el.style.left = Math.round(x/20)*20 + 'px';
+    el.style.top  = Math.round(y/20)*20 + 'px';
+  } else {
+    el.style.left = x+'px';
+    el.style.top  = y+'px';
+  }
+
+  makeDraggable(el);
+  workspace.appendChild(el);
+}
+
+/* =====================
+   5. DRAG PIECE (MODIFIED FOR GROUP DRAG)
+===================== */
+function makeDraggable(el){
+  let sx, sy, ox, oy, offsets = [];
+
+  el.addEventListener('mousedown', e=>{
+    selectPiece(el, e);
+    sx = e.clientX;
+    sy = e.clientY;
+
+    // Jika ada selectedPieces (grup), hitung offset relatif untuk masing-masing
+    if (selectedPieces.size > 1) {
+      offsets = [];
+      selectedPieces.forEach(p => {
+        const px = parseInt(p.style.left) || 0;
+        const py = parseInt(p.style.top) || 0;
+        offsets.push({ el: p, ox: px, oy: py });
+      });
+    } else {
+      // Jika hanya satu piece, gunakan offset biasa
+      ox = parseInt(el.style.left);
+      oy = parseInt(el.style.top);
+    }
+
+    function move(ev){
+      const dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+
+      if (selectedPieces.size > 1) {
+        // Gerakkan seluruh grup dengan offset relatif
+        offsets.forEach(({ el: p, ox: px, oy: py }) => {
+          p.style.left = (px + dx) + 'px';
+          p.style.top = (py + dy) + 'px';
+        });
+      } else {
+        // Gerakkan piece tunggal
+        el.style.left = (ox + dx) + 'px';
+        el.style.top = (oy + dy) + 'px';
+      }
+    }
+
+    function up(){
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    }
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+}
+
+/* =====================
+   6. SELECT + GROUP (MODIFIED)
+===================== */
+let selectedPieces = new Set();
+
+function selectPiece(el, e){
+  if (e.shiftKey) {
+    // Toggle pilih (untuk group)
+    if (selectedPieces.has(el)) {
+      el.classList.remove('selected-outline');
+      selectedPieces.delete(el);
+    } else {
+      el.classList.add('selected-outline');
+      selectedPieces.add(el);
+    }
+  } else {
+    // Klik biasa: jika piece sudah terpilih DAN ada lebih dari 1 (grup), jangan clear (biarkan grup utuh untuk drag)
+    if (selectedPieces.has(el) && selectedPieces.size > 1) {
+      // Grup tetap, tidak ada perubahan
+    } else {
+      // Clear semua selected, lalu pilih piece ini saja
+      document.querySelectorAll('.piece').forEach(p => p.classList.remove('selected-outline'));
+      selectedPieces.clear();
+      el.classList.add('selected-outline');
+      selectedPieces.add(el);
+    }
+  }
+}
+
+/* =====================
+   7. DUPLICATE (G)
+===================== */
+document.addEventListener('keydown', e=>{
+  if(e.key.toLowerCase()==='g'){
+    selectedPieces.forEach(p=> duplicatePiece(p));
+    updateTotal();
+  }
+});
+
+function duplicatePiece(p){
+  const x = parseInt(p.style.left)+15;
+  const y = parseInt(p.style.top)+15;
+  spawnPiece(x,y,{value:Number(p.dataset.value)});
+}
+
+/* =====================
+   8. EXCHANGE (X) — Opsi A
+===================== */
+document.addEventListener('keydown', e=>{
+  if(e.key.toLowerCase()==='x'){
+    if(selectedPieces.size===0) return;
+    const arr = sets[currentSet].slice().sort((a,b)=>b-a);
+    let sum = 0;
+    selectedPieces.forEach(p=> sum+=Number(p.dataset.value));
+    selectedPieces.forEach(p=> p.remove());
+    selectedPieces.clear();
+
+    arr.forEach(v=>{
+      while(sum>=v){
+        spawnPiece(60+Math.random()*80,60+Math.random()*80,{value:v});
+        sum-=v;
+      }
+    })
+    updateTotal();
+  }
+});
+
+/* =====================
+   9. UPDATE TOTAL
+===================== */
+function updateTotal(){
+  let sum=0;
+  document.querySelectorAll('.piece').forEach(p=> sum+=Number(p.dataset.value));
+  document.getElementById('totalText').textContent =
+    currentSet==='IDR' ?
+      'Total: Rp'+sum.toLocaleString('id-ID') :
+      'Total: $'+sum;
+}
+
+/* =====================
+   10. GANTI MATA UANG
+===================== */
+document.getElementById('currencySelect').onchange = e=>{
+  currentSet = e.target.value;
+  populatePalette();
+};
+
+/* =====================
+   11. SCALE ALL PIECES (A)
+===================== */
+const scaleSlider = document.getElementById('scaleRange');
+scaleSlider.oninput = function(){
+  const s = Number(this.value);
+  document.querySelectorAll('.piece').forEach(p=>{
+    p.style.transformOrigin = 'top left';
+    p.style.transform = `scale(${s})`;
+  });
+};
+
+/* =====================
+   13. ZOOM WORKSPACE (NEW)
+===================== */
+const zoomSlider = document.getElementById('zoomRange');
+zoomSlider.oninput = function(){
+  const z = Number(this.value);
+  workspace.style.transform = `scale(${z})`;
+};
+
+/* =====================
+   14. EXPAND WORKSPACE (NEW)
+===================== */
+const expandSlider = document.getElementById('expandRange');
+expandSlider.oninput = function(){
+  const e = Number(this.value);
+  const baseWidth = 600; // Lebar dasar workspace (sesuaikan jika perlu)
+  const baseHeight = 520; // Tinggi dasar workspace
+  workspace.style.width = (baseWidth * e) + 'px';
+  workspace.style.height = (baseHeight * e) + 'px';
+};
+
+</script>
+</body>
+</html>
